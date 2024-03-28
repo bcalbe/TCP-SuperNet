@@ -21,6 +21,7 @@ from TCP.model import TCP
 from TCP.config import GlobalConfig
 from team_code.planner import RoutePlanner
 
+import pygame
 
 SAVE_PATH = os.environ.get('SAVE_PATH', None)
 
@@ -45,7 +46,7 @@ class TCPAgent(autonomous_agent.AutonomousAgent):
 		self.initialized = False
 
 		self.config = GlobalConfig()
-		self.net = TCP(self.config)
+		self.net = TCP(self.config,backbone_name ="Superres")
 
 
 		ckpt = torch.load(path_to_conf_file)
@@ -83,8 +84,10 @@ class TCPAgent(autonomous_agent.AutonomousAgent):
 	def _init(self):
 		self._route_planner = RoutePlanner(4.0, 50.0)
 		self._route_planner.set_route(self._global_plan, True)
-
+		
 		self.initialized = True
+
+		self.display_init()
 
 	def _get_position(self, tick_data):
 		gps = tick_data['gps']
@@ -107,6 +110,13 @@ class TCPAgent(autonomous_agent.AutonomousAgent):
 					'roll': 0.0, 'pitch': -90.0, 'yaw': 0.0,
 					'width': 512, 'height': 512, 'fov': 5 * 10.0,
 					'id': 'bev'
+					},	
+				{
+					'type': 'sensor.camera.semantic_segmentation',
+					'x': -1.5, 'y': 0.0, 'z': 2.0,
+					'roll': 0.0, 'pitch': 0.0, 'yaw': 0.0,
+					'width': 900, 'height': 256, 'fov': 100,
+					'id': 'semantic'
 					},	
 				{
 					'type': 'sensor.other.imu',
@@ -137,6 +147,8 @@ class TCPAgent(autonomous_agent.AutonomousAgent):
 		gps = input_data['gps'][1][:2]
 		speed = input_data['speed'][1]['speed']
 		compass = input_data['imu'][1][-1]
+		semantic = input_data['semantic'][1][:, :, :3]
+		self.display_data(input_data)
 
 		if (math.isnan(compass) == True): #It can happen that the compass sends nan for a few frames
 			compass = 0.0
@@ -191,6 +203,7 @@ class TCPAgent(autonomous_agent.AutonomousAgent):
 		cmd_one_hot[command] = 1
 		cmd_one_hot = torch.tensor(cmd_one_hot).view(1, 6).to('cuda', dtype=torch.float32)
 		speed = torch.FloatTensor([float(tick_data['speed'])]).view(1,1).to('cuda', dtype=torch.float32)
+		print(speed)
 		speed = speed / 12
 		rgb = self._im_transform(tick_data['rgb']).unsqueeze(0).to('cuda', dtype=torch.float32)
 
@@ -200,9 +213,11 @@ class TCPAgent(autonomous_agent.AutonomousAgent):
 		state = torch.cat([speed, target_point, cmd_one_hot], 1)
 
 		pred= self.net(rgb, state, target_point)
-
+		
+		#-------------------------------------------------
+		#Get the control command and merge them using alpha
+		#-------------------------------------------------
 		steer_ctrl, throttle_ctrl, brake_ctrl, metadata = self.net.process_action(pred, tick_data['next_command'], gt_velocity, target_point)
-
 		steer_traj, throttle_traj, brake_traj, metadata_traj = self.net.control_pid(pred['pred_wp'], gt_velocity, target_point)
 		if brake_traj < 0.05: brake_traj = 0.0
 		if throttle_traj > brake_traj: brake_traj = 0.0
@@ -255,6 +270,38 @@ class TCPAgent(autonomous_agent.AutonomousAgent):
 		if SAVE_PATH is not None and self.step % 10 == 0:
 			self.save(tick_data)
 		return control
+	
+	def display_init(self):
+		size = (width, height) = (900, 256)
+		# size = (width, height) = (640, 360)
+		# size = (width, height) = (320, 180)
+		pygame.init()
+		pygame.display.set_caption("vehicle")
+		self.display = pygame.display.set_mode(size, pygame.HWSURFACE | pygame.DOUBLEBUF)
+
+	def display_data(self, tick_data,tag = "semantic"):
+		if tag == "semantic":
+			sem_im = tick_data['semantic'][1][:, :, :3]
+			sem = sem_im[:, :, 2]
+			SEM_COLORS = {
+						4: (220, 20, 60),
+						6: (157, 234, 50),
+						7: (128, 64, 128),
+						10: (0, 0, 142),}
+			labels=[4, 6, 7, 10]
+			canvas = np.zeros(sem.shape + (3,), dtype=np.uint8)
+			# print("shape of canvas:",canvas.shape)
+			for label in labels:
+				# print(label)
+				canvas[sem == label] = SEM_COLORS[label]
+			im = canvas
+		
+		#im = cv2.cvtColor(im, cv2.COLOR_BGR2RGB)
+		im = cv2.resize(im, (900, 256))
+		im = np.rot90(im)
+		im = pygame.surfarray.make_surface(im)
+		self.display.blit(im, (0, 0))
+		pygame.display.flip()
 
 	def save(self, tick_data):
 		frame = self.step // 10

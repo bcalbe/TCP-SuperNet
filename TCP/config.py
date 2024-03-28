@@ -8,15 +8,20 @@ class GlobalConfig:
 
 	# data root
 	root_dir_all = "tcp_carla_data"
+	#root_dir_all = "data"
+	#default data
+	# train_towns = ['town01', 'town03', 'town04',  'town06', ]
+	# val_towns = ['town01', 'town05', 'town07', 'town10']
 
-	train_towns = ['town01', 'town03', 'town04',  'town06', ]
-	val_towns = ['town02', 'town05', 'town07', 'town10']
+	train_towns = ['town01','town04', 'town06']
+	val_towns = ['town01','town07', 'town10']
 	train_data, val_data = [], []
 	for town in train_towns:		
 		train_data.append(os.path.join(root_dir_all, town))
 		train_data.append(os.path.join(root_dir_all, town+'_addition'))
 	for town in val_towns:
 		val_data.append(os.path.join(root_dir_all, town+'_val'))
+		#val_data.append(os.path.join(root_dir_all, town))
 
 	ignore_sides = True # don't consider side cameras
 	ignore_rear = True # don't consider rear cameras
@@ -26,7 +31,7 @@ class GlobalConfig:
 	scale = 1 # image pre-processing
 	crop = 256 # image pre-processing
 
-	lr = 1e-4 # learning rate
+	lr = 1e-5 # learning rate
 
 	# Controller
 	turn_KP = 0.75
@@ -39,22 +44,32 @@ class GlobalConfig:
 	speed_KD = 1.0
 	speed_n = 40 # buffer size
 
-	max_throttle = 0.75 # upper limit on throttle signal value in dataset
-	brake_speed = 0.4 # desired speed below which brake is triggered
+
+	# max_throttle = 0.75 # upper limit on throttle signal value in dataset
+	# brake_speed = 0.4 # desired speed below which brake is triggered
+	# brake_ratio = 1.1 # ratio of speed to desired speed at which brake is triggered
+	# clip_delta = 0.25 # maximum change in speed input to logitudinal controller
+	max_throttle = 1.0 # upper limit on throttle signal value in dataset
+	brake_speed = 1.0 # desired speed below which brake is triggered
 	brake_ratio = 1.1 # ratio of speed to desired speed at which brake is triggered
-	clip_delta = 0.25 # maximum change in speed input to logitudinal controller
+	clip_delta = 0.5 # maximum change in speed input to logitudinal controller
+
 
 
 	aim_dist = 4.0 # distance to search around for aim point
 	angle_thresh = 0.3 # outlier control detection angle
 	dist_thresh = 10 # target point y-distance for outlier filtering
 
+	# speed_weight = 0.05
+	# value_weight = 0.001
+	# features_weight = 0.05
 
 	speed_weight = 0.05
 	value_weight = 0.001
-	features_weight = 0.05
+	features_weight = 0.001
 
-	rl_ckpt = "roach/log/ckpt_11833344.pth"
+	#rl_ckpt = "roach/log/ckpt_11833344.pth"
+	rl_ckpt = "checkpoint/TCP_result/TCP_ofares50.ckpt"
 
 	img_aug = True
 

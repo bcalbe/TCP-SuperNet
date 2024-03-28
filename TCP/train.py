@@ -13,18 +13,40 @@ import pytorch_lightning as pl
 from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.plugins import DDPPlugin
 
+import sys
+sys.path.append('./')
 from TCP.model import TCP
 from TCP.data import CARLA_Data
 from TCP.config import GlobalConfig
 
+from time import time
+import os
+os.environ["CUDA_VISIBLE_DEVICES"] = "0,1,2,3"
 
+#------------------------------------------------------------------------------------------------
+#This code is to train the model using the packed data from running the carla on different routes
+#------------------------------------------------------------------------------------------------
 class TCP_planner(pl.LightningModule):
-	def __init__(self, config, lr):
+	def __init__(self, config, lr,resume_path = None):
 		super().__init__()
 		self.lr = lr
 		self.config = config
-		self.model = TCP(config)
-		self._load_weight()
+		self.model = TCP(config,backbone_name = "Superres")
+		self.resume_path = resume_path
+		#-----------------------------------------------------------------------------------
+		#loading a model trained on multi gpu to single gpu will cause key mistach error
+		#Specificall, the state_dict of the ckpt model will have "model" prefix in the keys
+		#-----------------------------------------------------------------------------------
+		if self.resume_path is not None:
+			init = torch.load(self.resume_path,map_location="cuda:0")
+			pre_trained_dict = {}
+			for k,v in init['state_dict'].items():
+				pre_trained_dict[k.replace("model.", "")] = v
+			# pre_trained_dict.pop("join_traj.0.weight")
+			# pre_trained_dict.pop("speed_branch.0.weight")
+			self.model.load_state_dict(pre_trained_dict, strict = False)
+		else:
+			self._load_weight()
 
 	def _load_weight(self):
 		rl_state_dict = torch.load(self.config.rl_ckpt, map_location='cpu')['policy_state_dict']
@@ -45,6 +67,7 @@ class TCP_planner(pl.LightningModule):
 	def forward(self, batch):
 		pass
 
+	#To do: Add the training of subnets
 	def training_step(self, batch, batch_idx):
 		front_img = batch['front_img']
 		speed = batch['speed'].to(dtype=torch.float32).view(-1,1) / 12.
@@ -55,9 +78,15 @@ class TCP_planner(pl.LightningModule):
 		value = batch['value'].view(-1,1)
 		feature = batch['feature']
 
-		gt_waypoints = batch['waypoints']
+		gt_waypoints = batch['waypoints'][:,:self.config.pred_len,:]
 
+		#----------------------------------------------------------------------------------------------------------------
+		#add a for loop to train the subnets, use network batch size here to control the number of subnet within a batch
+		#----------------------------------------------------------------------------------------------------------------
+		t1 = time()
 		pred = self.model(front_img, state, target_point)
+		t2 = time()
+		#print("model time:{}".format(t2-t1))
 
 		dist_sup = Beta(batch['action_mu'], batch['action_sigma'])
 		dist_pred = Beta(pred['mu_branches'], pred['sigma_branches'])
@@ -101,7 +130,7 @@ class TCP_planner(pl.LightningModule):
 		state = torch.cat([speed, target_point, command], 1)
 		value = batch['value'].view(-1,1)
 		feature = batch['feature']
-		gt_waypoints = batch['waypoints']
+		gt_waypoints = batch['waypoints'][:,:self.config.pred_len,:]
 
 		pred = self.model(front_img, state, target_point)
 		dist_sup = Beta(batch['action_mu'], batch['action_sigma'])
@@ -154,12 +183,12 @@ if __name__ == "__main__":
 	parser = argparse.ArgumentParser()
 
 	parser.add_argument('--id', type=str, default='TCP', help='Unique experiment identifier.')
-	parser.add_argument('--epochs', type=int, default=60, help='Number of train epochs.')
-	parser.add_argument('--lr', type=float, default=0.0001, help='Learning rate.')
-	parser.add_argument('--val_every', type=int, default=3, help='Validation frequency (epochs).')
-	parser.add_argument('--batch_size', type=int, default=32, help='Batch size')
+	parser.add_argument('--epochs', type=int, default=10, help='Number of train epochs.')
+	parser.add_argument('--lr', type=float, default=0.00001, help='Learning rate.')
+	parser.add_argument('--val_every', type=int, default=5, help='Validation frequency (epochs).')
+	parser.add_argument('--batch_size', type=int, default=16, help='Batch size')
 	parser.add_argument('--logdir', type=str, default='log', help='Directory to log data to.')
-	parser.add_argument('--gpus', type=int, default=1, help='number of gpus')
+	parser.add_argument('--gpus', type=int, default=4, help='number of gpus')
 
 	args = parser.parse_args()
 	args.logdir = os.path.join(args.logdir, args.id)
@@ -176,7 +205,7 @@ if __name__ == "__main__":
 	dataloader_train = DataLoader(train_set, batch_size=args.batch_size, shuffle=True, num_workers=8)
 	dataloader_val = DataLoader(val_set, batch_size=args.batch_size, shuffle=False, num_workers=8)
 
-	TCP_model = TCP_planner(config, args.lr)
+	TCP_model = TCP_planner(config, args.lr,resume_path="./checkpoint/TCP_result/res50_ta_4wp_90+13ep.ckpt")
 
 	checkpoint_callback = ModelCheckpoint(save_weights_only=False, mode="min", monitor="val_loss", save_top_k=2, save_last=True,
 											dirpath=args.logdir, filename="best_{epoch:02d}-{val_loss:.3f}")
@@ -186,7 +215,7 @@ if __name__ == "__main__":
 											gpus = args.gpus,
 											accelerator='ddp',
 											sync_batchnorm=True,
-											plugins=DDPPlugin(find_unused_parameters=False),
+											plugins=DDPPlugin(find_unused_parameters=True),
 											profiler='simple',
 											benchmark=True,
 											log_every_n_steps=1,

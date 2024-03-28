@@ -519,7 +519,7 @@ class ROACHAgent(autonomous_agent.AutonomousAgent):
 			throttle = 0.0
 			brake = np.abs(acc)
 
-		throttle = np.clip(throttle, 0, 1)
+		throttle = np.clip(throttle*2, 0, 1)
 		steer = np.clip(steer, -1, 1)
 		brake = np.clip(brake, 0, 1)
 		control = carla.VehicleControl(throttle=throttle, steer=steer, brake=brake)

@@ -3,7 +3,9 @@ import numpy as np
 import torch 
 from torch import nn
 from TCP.resnet import *
-
+from SuperNet.ofa_mbv3 import OFAMobileNetV3,weights_init
+from SuperNet.elastic_nn.networks.ofa_resnets import OFAResNets
+from time import time
 
 class PIDController(object):
 	def __init__(self, K_P=1.0, K_I=0.0, K_D=0.0, n=20):
@@ -31,15 +33,42 @@ class PIDController(object):
 
 class TCP(nn.Module):
 
-	def __init__(self, config):
+	def __init__(self, config,backbone_name = "Superres"):
 		super().__init__()
 		self.config = config
 
 		self.turn_controller = PIDController(K_P=config.turn_KP, K_I=config.turn_KI, K_D=config.turn_KD, n=config.turn_n)
 		self.speed_controller = PIDController(K_P=config.speed_KP, K_I=config.speed_KI, K_D=config.speed_KD, n=config.speed_n)
 
-		self.perception = resnet34(pretrained=True)
+		if backbone_name == "Res34":
+			self.perception = resnet34(pretrained=True)
+			cnn_dim = 512
+		elif backbone_name == "Superobv3":
 
+			self.perception = OFAMobileNetV3(
+												ks_list=[3, 7, 11],
+												expand_ratio_list=[3,6,8],
+												depth_list=[2, 4, 6],
+												width_mult=1.0,
+											)
+			cnn_dim = 512
+			self.perception.set_max_net()
+		elif backbone_name == "Superres":
+
+			self.perception = OFAResNets(
+												n_classes=1000,
+												bn_param=(0.1, 1e-5),
+												dropout_rate=0,
+												depth_list=[0,1,2],
+												expand_ratio_list=[0.2,0.25,0.35],
+												width_mult_list=[0.8,1.0],
+											)
+			cnn_dim = 2048
+			self.perception.set_max_net()
+
+
+
+		
 		self.measurements = nn.Sequential(
 							nn.Linear(1+2+6, 128),
 							nn.ReLU(inplace=True),
@@ -48,7 +77,7 @@ class TCP(nn.Module):
 						)
 
 		self.join_traj = nn.Sequential(
-							nn.Linear(128+1000, 512),
+							nn.Linear(128+cnn_dim, 512),
 							nn.ReLU(inplace=True),
 							nn.Linear(512, 512),
 							nn.ReLU(inplace=True),
@@ -57,7 +86,7 @@ class TCP(nn.Module):
 						)
 
 		self.join_ctrl = nn.Sequential(
-							nn.Linear(128+512, 512),
+							nn.Linear(128+cnn_dim, 512),
 							nn.ReLU(inplace=True),
 							nn.Linear(512, 512),
 							nn.ReLU(inplace=True),
@@ -66,7 +95,7 @@ class TCP(nn.Module):
 						)
 
 		self.speed_branch = nn.Sequential(
-							nn.Linear(1000, 256),
+							nn.Linear(cnn_dim, 256),
 							nn.ReLU(inplace=True),
 							nn.Linear(256, 256),
 							nn.Dropout2d(p=0.5),
@@ -129,16 +158,20 @@ class TCP(nn.Module):
 			)
 
 		self.merge = nn.Sequential(
-				nn.Linear(512+256, 512),
+				nn.Linear(cnn_dim+256, 512),
 				nn.ReLU(inplace=True),
 				nn.Linear(512, 256),
 			)
 		
 
 	def forward(self, img, state, target_point):
+		#tp1 = time()
 		feature_emb, cnn_feature = self.perception(img)
+		#tp2 = time()
+		#print("perception time is:{} ".format( tp2-tp1))
 		outputs = {}
 		outputs['pred_speed'] = self.speed_branch(feature_emb)
+		#state is speed, target_point, command
 		measurement_feature = self.measurements(state)
 		
 		j_traj = self.join_traj(torch.cat([feature_emb, measurement_feature], 1))
@@ -310,6 +343,7 @@ class TCP(nn.Module):
 			'steer': float(steer),
 			'throttle': float(throttle),
 			'brake': float(brake),
+			#the pred_wp is 2
 			'wp_4': tuple(waypoints[3].astype(np.float64)),
 			'wp_3': tuple(waypoints[2].astype(np.float64)),
 			'wp_2': tuple(waypoints[1].astype(np.float64)),

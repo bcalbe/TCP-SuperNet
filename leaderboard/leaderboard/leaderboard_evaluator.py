@@ -22,7 +22,12 @@ import os
 import sys
 import gc
 import pkg_resources
-import sys
+sys.path.append("/data3/jiale/TCP/CARLA_0.9.10/PythonAPI")
+sys.path.append("/data3/jiale/TCP/CARLA_0.9.10/PythonAPI/carla")
+sys.path.append("/data3/jiale/TCP/CARLA_0.9.10/PythonAPI/carla/dist/carla-0.9.10-py3.7-linux-x86_64.egg")
+sys.path.append("/data3/jiale/TCP/scenario_runner/")
+
+
 import carla
 import copy
 import signal
@@ -37,6 +42,8 @@ from leaderboard.envs.sensor_interface import SensorInterface, SensorConfigurati
 from leaderboard.autoagents.agent_wrapper import  AgentWrapper, AgentError
 from leaderboard.utils.statistics_manager import StatisticsManager
 from leaderboard.utils.route_indexer import RouteIndexer
+import os
+os.environ["CUDA_VISIBLE_DEVICES"] = "0,1"
 
 
 sensors_to_icons = {
@@ -109,6 +116,7 @@ class LeaderboardEvaluator(object):
 
         try:
             self.traffic_manager = self.client.get_trafficmanager(int(args.trafficManagerPort))
+            
             # self.traffic_manager = self.client.get_trafficmanager(8000)
         except Exception as e:
             print(e)
@@ -351,6 +359,8 @@ class LeaderboardEvaluator(object):
             self._prepare_ego_vehicles(config.ego_vehicles, False)
             scenario = RouteScenario(world=self.world, config=config, debug_mode=args.debug)
             self.statistics_manager.set_scenario(scenario.scenario)
+            self.traffic_manager.global_percentage_speed_difference(-150)
+            self.traffic_manager.vehicle_percentage_speed_difference(scenario.ego_vehicles[0],-150)
 
             # self.agent_instance._init()
             # self.agent_instance.sensor_interface = SensorInterface()
@@ -471,7 +481,7 @@ def main():
 
     # general parameters
     parser = argparse.ArgumentParser(description=description, formatter_class=RawTextHelpFormatter)
-    parser.add_argument('--host', default='localhost',
+    parser.add_argument('--host', default='10.96.178.92',
                         help='IP of the host server (default: localhost)')
     parser.add_argument('--port', default='62000', help='TCP port to listen to (default: 2000)')
     parser.add_argument('--trafficManagerPort', default='8000',

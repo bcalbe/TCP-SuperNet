@@ -209,7 +209,7 @@ class AgentWrapper(object):
                 # create sensor
                 sensor_transform = carla.Transform(sensor_location, sensor_rotation)
                 sensor = CarlaDataProvider.get_world().spawn_actor(bp, sensor_transform, vehicle)
-            # setup callback
+            # setup callback,self._agent.sensor_interface creates a queue for each sensor
             sensor.listen(CallBack(sensor_spec['id'], sensor_spec['type'], sensor, self._agent.sensor_interface))
             self._sensors_list.append(sensor)
 

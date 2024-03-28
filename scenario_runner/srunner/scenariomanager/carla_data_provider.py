@@ -45,7 +45,9 @@ class CarlaDataProvider(object):  # pylint: disable=too-many-public-methods
 
     In addition it provides access to the map and the transform of all traffic lights
     """
-
+    """
+    This class variables provides access to various data of all registered actors
+    """
     _actor_velocity_map = dict()
     _actor_location_map = dict()
     _actor_transform_map = dict()

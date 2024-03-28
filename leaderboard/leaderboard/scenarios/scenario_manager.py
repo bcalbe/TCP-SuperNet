@@ -17,6 +17,7 @@ import time
 
 import py_trees
 import carla
+import numpy as np
 
 from srunner.scenariomanager.carla_data_provider import CarlaDataProvider
 from srunner.scenariomanager.timer import GameTime
@@ -114,6 +115,7 @@ class ScenarioManager(object):
         # py_trees.display.render_dot_tree(self.scenario_tree)
         CarlaDataProvider.set_ego(self.ego_vehicles[0])
 
+        #set up sensors
         self._agent.setup_sensors(self.ego_vehicles[0], self._debug_mode)
 
     def run_scenario(self):
@@ -148,9 +150,19 @@ class ScenarioManager(object):
             # Update game time and actor information
             GameTime.on_carla_tick(timestamp)
             CarlaDataProvider.on_carla_tick()
-
+            
+            #call the agent and get the data control
             try:
                 ego_action = self._agent()
+                ego_action.throlle = 1.0
+                ego_action.brake = 0.0
+                speed = CarlaDataProvider.get_velocity(self.ego_vehicles[0])
+                speed_limit = self.ego_vehicles[0].get_speed_limit()
+                acc = self.ego_vehicles[0].get_acceleration()
+                acc = np.sqrt(acc.x**2+acc.y**2+acc.z**2)
+                con = self.ego_vehicles[0].get_control().throttle
+
+                print("Speed:{},limit:{},acceleration:{},control:{}".format(np.round(speed,2),speed_limit,acc,con))
 
             # Special exception inside the agent that isn't caused by the agent
             except SensorReceivedNoData as e:
@@ -177,6 +189,8 @@ class ScenarioManager(object):
             ego_trans = self.ego_vehicles[0].get_transform()
             spectator.set_transform(carla.Transform(ego_trans.location + carla.Location(z=50),
                                                         carla.Rotation(pitch=-90)))
+            
+
 
         if self._running and self.get_running_status():
             CarlaDataProvider.get_world().tick(self._timeout)
